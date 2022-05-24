@@ -96,7 +96,7 @@
 
         //  version (as of now 27 Mar 2020 there is only change prior Feb 2020SR1 and after)
 
-            Let vNPVersion                          =   '20200201';                         // Meaning of digits: 2020 - year, 02 - feb, 01 - SR1
+            Let vNPVersion                          =   '20200901';                         // Meaning of digits: 2020 - year, 02 - feb, 01 - SR1
 
     //  Connection variables
         //  GET
@@ -123,6 +123,12 @@
 
             Let vQueryLimit                         =   '1000';
     
+    /*  Temp Variables for my Testing
+            Let vQlikSenseServer                    =   'https://elvaio';                   //  Replace with your QlikSense server            
+            Let vNPrintingServer                    =   'elvaio';                  	        //  NPrinitng host name
+            Let vNPrintingAdmin		                =   'nprinting';             	        //  NPrinitng service account/admin
+            Let vNPrintingAppName			        =   'Testing';                          //  We are assuming that only one NPrinting App reports will run
+    */       
     //  Compose static URL's 
 
             Let vURL_Apps                           =   'https://$(vNPrintingServer):4993/api/v1/apps';
@@ -132,12 +138,18 @@
             Let vURL_Role                           =   'https://$(vNPrintingServer):4993/api/v1/roles';
             Let vURL_Tasks                          =   'https://$(vNPrintingServer):4993/api/v1/tasks';
             Let vURL_User                           =   'https://$(vNPrintingServer):4993/api/v1/users';
+            Let vURL_Audit                          =   'https://$(vNPrintingServer):4993/api/v1/audit/events';
 //
 //  ------------------------------------------------------------------------------------------------------------------------------------------------
 //                              TASKS
 //  ------------------------------------------------------------------------------------------------------------------------------------------------
 //
 //	AUTHENTICATE
+
+//      !!! IMPORTANT !!!!
+
+//      cookie issues may require tweaking depending on Qlik Sense and NPrinitng version
+//      https://community.qlik.com/t5/Qlik-NPrinting-Discussions/Nprinting-REST-API-broke-after-June-2020-update/td-p/172078
 
     SUB NP_Authenticate
 
@@ -171,9 +183,12 @@
             If $(vNPVersion) < 20200201 Then
                 Trace Loading cookie based on NPrinting version prior Feb 2020 SR1 release;
                 Let vCookie 	= TextBetween('$(vCookieRaw)','Secure,','Path=/',2);
-            Else
+            ElseIf $(vNPVersion) < 20200401 Then
                 Trace Loading cookie based on NPrinting version equal or post Feb 2020 SR1 release;
                 Let vCookie 	= TextBetween('$(vCookieRaw)','SameSite=None,','Path=/',2);
+            Else
+                Trace Loading cookie based on NPrinting version equal or post Seb 2020 Initial release;
+                Let vCookie 	= TextBetween('$(vCookieRaw)','SameSite=None,','Path=/',3);    
             EndIf
             ;
 
@@ -1676,6 +1691,7 @@
                 Drop Table RestConnectionFiltersTable;
                 
         ENDSUB
+
 //  SCRIPT SCHEDULER
 
         SUB NP_DailySchedule(vScheduledDays)            
@@ -1709,6 +1725,383 @@
             EndIf      
 
         ENDSUB
+
+//  AUDIT Data - Add City Parameter to get local timestamps for events
+
+        SUB NP_Audit_Model(vUTC_City)
+    
+            LIB CONNECT TO '$(vConnection_GET)';
+
+            //  Get All Audit Data
+
+            NPrinting_Audit_Data:
+            SQL SELECT 
+                "totalItems",
+                "offset",
+                "limit",
+                "__KEY_data",
+                (SELECT 
+                    "id" AS "id_u1",
+                    "userId",
+                    "userName",
+                    "ipAddress",
+                    "source",
+                    "target",
+                    "targetId",
+                    "targetName",
+                    "appId",
+                    "eventTime",
+                    "action",
+                    "description",
+                    "dataType",
+                    "data",
+                    "__KEY_items",
+                    "__FK_items",
+                    (SELECT 
+                        "authenticationType",
+                        "host",
+                        "name" AS "name_u2",
+                        "status",
+                        "enabled",
+                        "version",
+                        "type",
+                        "title",
+                        "qlikEntity",
+                        "dynamicName",
+                        "templateFormat",
+                        "onDemandEnabled",
+                        "format",
+                        "reportId",
+                        "reportTitle",
+                        "requestSourceType",
+                        "address",
+                        "taskId",
+                        "fileSize",
+                        "published",
+                        "executionId",
+                        "recipientId",
+                        "recipientDomainAccount",
+                        "taskName",
+                        "taskType",
+                        "triggerId",
+                        "folderPath",
+                        "publishTaskId",
+                        "connectionId" AS "connectionId_u0",
+                        "connectionName" AS "connectionName_u0",
+                        "audit-enabled",
+                        "audit-max-retention-days",
+                        "audit-max-size-gb-trigger",
+                        "__KEY_data_u0",
+                        "__FK_data",
+                        (SELECT 
+                            "@Value",
+                            "__FK_cycle"
+                        FROM "cycle" FK "__FK_cycle" ArrayValueAlias "@Value"),
+                        (SELECT 
+                            "@Value" AS "@Value_u0",
+                            "__FK_filters"
+                        FROM "filters" FK "__FK_filters" ArrayValueAlias "@Value_u0"),
+                        (SELECT 
+                            "@Value" AS "@Value_u1",
+                            "__FK_objectFilters"
+                        FROM "objectFilters" FK "__FK_objectFilters" ArrayValueAlias "@Value_u1"),
+                        (SELECT 
+                            "objectId",
+                            "connectionId",
+                            "connectionName",
+                            "__FK_qlikEntity"
+                        FROM "qlikEntity" FK "__FK_qlikEntity"),
+                        (SELECT 
+                            "@Value" AS "@Value_u2",
+                            "__FK_hub"
+                        FROM "hub" FK "__FK_hub" ArrayValueAlias "@Value_u2"),
+                        (SELECT 
+                            "publishToAll",
+                            "__KEY_email",
+                            "__FK_email",
+                            (SELECT 
+                                "@Value" AS "@Value_u3",
+                                "__FK_users"
+                            FROM "users" FK "__FK_users" ArrayValueAlias "@Value_u3"),
+                            (SELECT 
+                                "@Value" AS "@Value_u4",
+                                "__FK_groups"
+                            FROM "groups" FK "__FK_groups" ArrayValueAlias "@Value_u4")
+                        FROM "email" PK "__KEY_email" FK "__FK_email"),
+                        (SELECT 
+                            "name" AS "name_u0",
+                            "path",
+                            "publishToAll" AS "publishToAll_u0",
+                            "__KEY_folder",
+                            "__FK_folder",
+                            (SELECT 
+                                "id",
+                                "name",
+                                "__FK_users_u0"
+                            FROM "users" FK "__FK_users_u0"),
+                            (SELECT 
+                                "@Value" AS "@Value_u5",
+                                "__FK_groups_u0"
+                            FROM "groups" FK "__FK_groups_u0" ArrayValueAlias "@Value_u5")
+                        FROM "folder" PK "__KEY_folder" FK "__FK_folder"),
+                        (SELECT 
+                            "publishToAll" AS "publishToAll_u1",
+                            "__KEY_newsStand",
+                            "__FK_newsStand",
+                            (SELECT 
+                                "id" AS "id_u0",
+                                "name" AS "name_u1",
+                                "__FK_users_u1"
+                            FROM "users" FK "__FK_users_u1"),
+                            (SELECT 
+                                "@Value" AS "@Value_u6",
+                                "__FK_groups_u1"
+                            FROM "groups" FK "__FK_groups_u1" ArrayValueAlias "@Value_u6")
+                        FROM "newsStand" PK "__KEY_newsStand" FK "__FK_newsStand")
+                    FROM "data" PK "__KEY_data_u0" FK "__FK_data")
+                FROM "items" PK "__KEY_items" FK "__FK_items")
+            FROM JSON (wrap off) "data" PK "__KEY_data"
+            WITH 
+                    CONNECTION( URL "$(vURL_Audit)", HTTPHEADER "cookie" "$(vCookie)", QUERY "Limit" "$(vQueryLimit)")
+            ;
+
+        //  Cycles
+            [cycle]:
+            LOAD	
+                [@Value],
+                [__FK_cycle]            AS [__KEY_data_u0]
+            RESIDENT 
+                NPrinting_Audit_Data
+            WHERE 
+                NOT IsNull([__FK_cycle])
+            ;
+        //  Filters
+            [filters]:
+            LOAD	
+                [@Value_u0]             AS [@Value_u0],
+                [__FK_filters]          AS [__KEY_data_u0]
+            RESIDENT 
+                NPrinting_Audit_Data
+            WHERE 
+                NOT IsNull([__FK_filters])
+            ;
+        //  object Filters
+            [objectFilters]:
+            LOAD	
+                [@Value_u1]             AS [@Value_u1],
+                [__FK_objectFilters]    AS [__KEY_data_u0]
+            RESIDENT 
+                NPrinting_Audit_Data
+            WHERE 
+                NOT IsNull([__FK_objectFilters])
+            ;
+        //  qlik Entity
+            [qlikEntity]:
+            LOAD	
+                [objectId],
+                [connectionId],
+                [connectionName],
+                [__FK_qlikEntity]       AS [__KEY_data_u0]
+            RESIDENT 
+                NPrinting_Audit_Data
+            WHERE 
+                NOT IsNull([__FK_qlikEntity])
+            ;
+        //  Hub
+            [hub]:
+            LOAD	
+                [@Value_u2]             AS [@Value_u2],
+                [__FK_hub]              AS [__KEY_data_u0]
+            RESIDENT 
+                NPrinting_Audit_Data
+            WHERE 
+                NOT IsNull([__FK_hub])
+            ;
+        //  Users
+            [users]:
+            LOAD	
+                [@Value_u3]             AS [@Value_u3],
+                [__FK_users]            AS [__KEY_email]
+            RESIDENT 
+                NPrinting_Audit_Data
+            WHERE 
+                NOT IsNull([__FK_users])
+            ;
+        //  Groups
+            [groups]:
+            LOAD	
+                [@Value_u4]             AS [@Value_u4],
+                [__FK_groups]           AS [__KEY_email]
+            RESIDENT 
+                NPrinting_Audit_Data
+            WHERE 
+                NOT IsNull([__FK_groups])
+            ;
+        //  Email
+            [email]:
+            LOAD	
+                [publishToAll],
+                [__KEY_email],
+                [__FK_email]            AS [__KEY_data_u0]
+            RESIDENT 
+                NPrinting_Audit_Data
+            WHERE 
+                NOT IsNull([__FK_email])
+            ;
+        //  user Detail
+            [users_u0]:
+            LOAD	
+                [id],
+                [name],
+                [__FK_users_u0]         AS [__KEY_folder]
+            RESIDENT 
+                NPrinting_Audit_Data
+            WHERE 
+                NOT IsNull([__FK_users_u0])
+            ;
+        //  groups Detail
+            [groups_u0]:
+            LOAD	
+                [@Value_u5]             AS [@Value_u5],
+                [__FK_groups_u0]        AS [__KEY_folder]
+            RESIDENT 
+                NPrinting_Audit_Data
+            WHERE 
+                NOT IsNull([__FK_groups_u0])
+            ;
+        //  Folder 
+            [folder]:
+            LOAD	
+                [name_u0]               AS [name_u0],
+                [path],
+                [publishToAll_u0]       AS [publishToAll_u0],
+                [__KEY_folder],
+                [__FK_folder]           AS [__KEY_data_u0]
+            RESIDENT 
+                NPrinting_Audit_Data
+            WHERE 
+                NOT IsNull([__FK_folder])
+            ;
+        //  User details News Stand
+            [users_u1]:
+            LOAD	
+                [id_u0]                 AS [id_u0],
+                [name_u1]               AS [name_u1],
+                [__FK_users_u1]         AS [__KEY_newsStand]
+            RESIDENT 
+                NPrinting_Audit_Data
+            WHERE 
+                NOT IsNull([__FK_users_u1])
+            ;
+        //  News Stand Group  
+            [groups_u1]:
+            LOAD	
+                [@Value_u6]                 AS [@Value_u6],
+                [__FK_groups_u1]            AS [__KEY_newsStand]
+            RESIDENT 
+                NPrinting_Audit_Data
+            WHERE 
+                NOT IsNull([__FK_groups_u1])
+            ;
+        //  News Stand
+            [newsStand]:
+            LOAD	
+                [publishToAll_u1]           AS [publishToAll_u1],
+                [__KEY_newsStand],
+                [__FK_newsStand]            AS [__KEY_data_u0]
+            RESIDENT 
+                NPrinting_Audit_Data
+            WHERE 
+                NOT IsNull([__FK_newsStand])
+            ;
+
+        //  Details regarding Audit Data
+            [Audit data]:
+            LOAD	
+                [authenticationType],
+                [host],
+                [name_u2] AS [name_u2],
+                [status],
+                [enabled],
+                [version],
+                [type],
+                [title],
+                [qlikEntity],
+                [dynamicName],
+                [templateFormat],
+                [onDemandEnabled],
+                [format],
+                [reportId],
+                [reportTitle],
+                [requestSourceType],
+                [address],
+                [taskId],
+                [fileSize],
+                [published],
+                [executionId],
+                [recipientId],
+                [recipientDomainAccount],
+                [taskName],
+                [taskType],
+                [triggerId],
+                [folderPath],
+                [publishTaskId],
+                [connectionId_u0]           AS [connectionId_u0],
+                [connectionName_u0]         AS [connectionName_u0],
+                [audit-enabled],
+                [audit-max-retention-days],
+                [audit-max-size-gb-trigger],
+                [__KEY_data_u0],
+                [__FK_data]                 AS [__KEY_items]
+            RESIDENT 
+                NPrinting_Audit_Data
+            WHERE 
+                NOT IsNull([__FK_data])
+            ;
+        //  Audit Items
+            [items]:
+            LOAD	
+                [id_u1]                                         as [id_u1],
+                [userId],
+                [userName],
+                [ipAddress],
+                [source],
+                [target],
+                [targetId],
+                [targetName],
+                [appId],
+                ConvertToLocalTime(eventTime , '$(vUTC_City)')                  as [local_date_time],
+                Date(Floor(ConvertToLocalTime(eventTime , '$(vUTC_City)')))     as [local_date],
+                Time(Frac(ConvertToLocalTime(eventTime , '$(vUTC_City)')))      as [local_time],
+                [eventTime],
+                [action],
+                [description],
+                [dataType],
+                [data],
+                [__KEY_items],
+                [__FK_items]                                    as [__KEY_data]
+            RESIDENT 
+                NPrinting_Audit_Data
+            WHERE 
+                NOT IsNull([__FK_items])
+            ;
+        //  Summary
+            [data_u0]:
+            LOAD	
+                [totalItems],
+                [offset],
+                [limit],
+                [__KEY_data]
+            RESIDENT 
+                NPrinting_Audit_Data
+            WHERE 
+                NOT IsNull([__KEY_data])
+            ;
+
+            DROP TABLE NPrinting_Audit_Data;
+
+        ENDSUB             
+
 //
 //	END TASKS
 //
